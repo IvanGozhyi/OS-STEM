@@ -3,6 +3,8 @@ from tkinter import ttk
 import multiprocessing
 import psutil
 import os
+import csv
+import time
 from workers import cpu_worker, mem_worker, io_worker
 
 
@@ -22,6 +24,11 @@ class OsBenchmarkerApp:
         io_counters = psutil.disk_io_counters()
         self.last_disk = io_counters.write_bytes if io_counters else 0
 
+        # Initialize CSV file with headers
+        with open("os_telemetry.csv", mode="w", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerow(["Time", "CPU_%", "RAM_Free_MB", "Disk_Write_MB_s", "Context_Switches"])
+
         self.init_ui()
 
     def init_ui(self):
@@ -38,6 +45,9 @@ class OsBenchmarkerApp:
         self.lbl_io = ttk.Label(mon_frame, text="Запис на диск: 0.00 MB/s", font=("Arial", 14))
         self.lbl_io.pack(anchor="w", pady=2)
 
+        self.lbl_ctx = ttk.Label(mon_frame, text="Перемикання контексту: 0", font=("Arial", 14))
+        self.lbl_ctx.pack(anchor="w", pady=2)
+
         # Button 1: Simple Monitor
         self.btn_monitor = ttk.Button(mon_frame, text="▶ Запустити простий перегляд (Монітор)",
                                       command=self.toggle_monitor)
@@ -53,18 +63,11 @@ class OsBenchmarkerApp:
 
         max_cores = multiprocessing.cpu_count()
 
-        # Текстова мітка з кількістю потоків
         self.lbl_cpu_count = ttk.Label(cpu_frame, text=f"Кількість потоків: {max_cores}", font=("Arial", 10, "bold"))
         self.lbl_cpu_count.pack(anchor="w", pady=2)
 
-        # Слайдер із прив'язкою до колбеку on_slider_change
-        self.cpu_slider = ttk.Scale(
-            cpu_frame,
-            from_=1,
-            to=max_cores,
-            orient="horizontal",
-            command=self.on_slider_change
-        )
+        self.cpu_slider = ttk.Scale(cpu_frame, from_=1, to=max_cores, orient="horizontal",
+                                    command=self.on_slider_change)
         self.cpu_slider.set(max_cores)
         self.cpu_slider.pack(fill="x", pady=2)
 
@@ -95,6 +98,7 @@ class OsBenchmarkerApp:
         if not self.is_monitoring:
             return
 
+        curr_time = time.strftime("%H:%M:%S")
         cpu = psutil.cpu_percent()
         ram = psutil.virtual_memory().available / (1024 * 1024)
 
@@ -103,11 +107,19 @@ class OsBenchmarkerApp:
         disk_mb_s = (curr_disk - self.last_disk) / (1024 * 1024)
         self.last_disk = curr_disk
 
+        ctx_switches = psutil.cpu_stats().ctx_switches
+
         self.lbl_cpu.config(text=f"CPU: {cpu:.1f}%")
         self.lbl_ram.config(text=f"Вільна RAM: {ram:.0f} MB")
         self.lbl_io.config(text=f"Запис на диск: {disk_mb_s:.2f} MB/s")
+        self.lbl_ctx.config(text=f"Перемикання контексту: {ctx_switches}")
 
-        # Schedule next UI update in 1000ms
+        # Запис у CSV файл
+        with open("os_telemetry.csv", mode="a", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerow([curr_time, round(cpu, 1), round(ram, 1), round(disk_mb_s, 2), ctx_switches])
+
+        # Оновлення інтерфейсу через 1 секунду
         self.root.after(1000, self.update_telemetry)
 
     def toggle_cpu(self):
@@ -146,7 +158,6 @@ class OsBenchmarkerApp:
 
 
 if __name__ == '__main__':
-    # Required for Windows multiprocessing safety
     multiprocessing.freeze_support()
     root = tk.Tk()
     app = OsBenchmarkerApp(root)
